@@ -1,1 +1,439 @@
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt 
+import os 
+import sklearn
+import seaborn as sns
+import xgboost as xgb
+from sklearn.preprocessing import StandardScaler,Normalizer
+from sklearn.preprocessing import LabelEncoder
+from sklearn.cluster import KMeans
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.impute import SimpleImputer
+from sklearn.metrics import accuracy_score
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
+from sklearn.model_selection import train_test_split, GridSearchCV , RandomizedSearchCV
+from  sklearn.linear_model import LinearRegression, LogisticRegression
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
+df = pd.read_csv(r"experiment_16.csv")
+df.columns
+df.select_dtypes(exclude=['object']).columns
+import pandas as pd
+import numpy as np
+from sklearn.preprocessing import Normalizer
 
+# Load the data
+try:
+    df = pd.read_csv("experiment_16.csv")
+except FileNotFoundError:
+    print("Error: 'experiment_16.csv' not found.  Make sure the file is in the correct directory.")
+    exit()
+
+# --- Create an Empty DataFrame for New Features ---
+new_features_df = pd.DataFrame()
+
+# --- Feature Engineering (Populating the new DataFrame) ---
+
+# 1. Position Errors
+new_features_df['X1_PositionError'] = df['X1_CommandPosition'] - df['X1_ActualPosition']
+new_features_df['Y1_PositionError'] = df['Y1_CommandPosition'] - df['Y1_ActualPosition']
+new_features_df['Z1_PositionError'] = df['Z1_CommandPosition'] - df['Z1_ActualPosition']
+
+# 2. Velocity Errors
+new_features_df['X1_VelocityError'] = df['X1_CommandVelocity'] - df['X1_ActualVelocity']
+new_features_df['Y1_VelocityError'] = df['Y1_CommandVelocity'] - df['Y1_ActualVelocity']
+new_features_df['Z1_VelocityError'] = df['Z1_CommandVelocity'] - df['Z1_ActualVelocity']
+
+# 3. Acceleration Errors
+new_features_df['X1_AccelerationError'] = df['X1_CommandAcceleration'] - df['X1_ActualAcceleration']
+new_features_df['Y1_AccelerationError'] = df['Y1_CommandAcceleration'] - df['Y1_ActualAcceleration']
+new_features_df['Z1_AccelerationError'] = df['Z1_CommandAcceleration'] - df['Z1_ActualAcceleration']
+
+# 4. Jerk (using numpy diff and prepending)
+new_features_df['X1_Jerk'] = np.diff(df['X1_ActualAcceleration'], prepend=df['X1_ActualAcceleration'].iloc[0])
+new_features_df['Y1_Jerk'] = np.diff(df['Y1_ActualAcceleration'], prepend=df['Y1_ActualAcceleration'].iloc[0])
+new_features_df['Z1_Jerk'] = np.diff(df['Z1_ActualAcceleration'], prepend=df['Z1_ActualAcceleration'].iloc[0])
+new_features_df['S1_Jerk'] = np.diff(df['S1_ActualAcceleration'], prepend=df['S1_ActualAcceleration'].iloc[0])
+
+# 5. Current Feedback Ratio (handling division by zero)
+epsilon = 1e-9  # Small constant to avoid division by zero
+new_features_df['X1_CurrentFeedbackRatio'] = df['X1_CurrentFeedback'] / (df['X1_OutputCurrent'] + epsilon)
+new_features_df['Y1_CurrentFeedbackRatio'] = df['Y1_CurrentFeedback'] / (df['Y1_OutputCurrent'] + epsilon)
+new_features_df['Z1_CurrentFeedbackRatio'] = df['Z1_CurrentFeedback'] / (df['Z1_OutputCurrent'] + epsilon)
+new_features_df['S1_CurrentFeedbackRatio'] = df['S1_CurrentFeedback'] / (df['S1_OutputCurrent'] + epsilon)
+
+# 6. Voltage/Current Ratio (Apparent Resistance)
+new_features_df['X1_ApparentResistance'] = df['X1_OutputVoltage'] / (df['X1_OutputCurrent'] + epsilon)
+new_features_df['Y1_ApparentResistance'] = df['Y1_OutputVoltage'] / (df['Y1_OutputCurrent'] + epsilon)
+new_features_df['Z1_ApparentResistance'] = df['Z1_OutputVoltage'] / (df['Z1_OutputCurrent'] + epsilon)
+new_features_df['S1_ApparentResistance'] = df['S1_OutputVoltage'] / (df['S1_OutputCurrent'] + epsilon)
+
+# 7. Power Change
+new_features_df['X1_OutputPower_Change'] = np.diff(df['X1_OutputPower'], prepend=df['X1_OutputPower'].iloc[0])
+new_features_df['Y1_OutputPower_Change'] = np.diff(df['Y1_OutputPower'], prepend=df['Y1_OutputPower'].iloc[0])
+#new_features_df['Z1_OutputPower_Change'] = np.diff(df['Z1_OutputPower'], prepend=df['Z1_OutputPower'].iloc[0])
+new_features_df['S1_OutputPower_Change'] = np.diff(df['S1_OutputPower'], prepend=df['S1_OutputPower'].iloc[0])
+
+# 8. Total Position Error
+new_features_df['TotalPositionError'] = np.sqrt(new_features_df['X1_PositionError']**2 + new_features_df['Y1_PositionError']**2 + new_features_df['Z1_PositionError']**2)
+
+# 9. Total Velocity Error
+new_features_df['TotalVelocityError'] = np.sqrt(new_features_df['X1_VelocityError']**2 + new_features_df['Y1_VelocityError']**2 + new_features_df['Z1_VelocityError']**2)
+
+# 10. Total Acceleration Error
+new_features_df['TotalAccelerationError'] = np.sqrt(new_features_df['X1_AccelerationError']**2 + new_features_df['Y1_AccelerationError']**2 + new_features_df['Z1_AccelerationError']**2)
+
+# 11. Total Jerk
+new_features_df['Total_Jerk'] = np.diff(new_features_df['TotalAccelerationError'], prepend = new_features_df['TotalAccelerationError'].iloc[0])
+
+# 12. XY Plane Position Error
+new_features_df['XY_PositionError'] = np.sqrt(new_features_df['X1_PositionError']**2 + new_features_df['Y1_PositionError']**2)
+
+
+# 13. Power Ratios (Handle potential division by zero)
+new_features_df['X1_PowerRatio'] = df['X1_OutputPower'] / (df['S1_OutputPower'] + epsilon)
+new_features_df['Y1_PowerRatio'] = df['Y1_OutputPower'] / (df['S1_OutputPower'] + epsilon)
+#new_features_df['Z1_PowerRatio'] = df['Z1_OutputPower'] / (df['S1_OutputPower'] + epsilon)
+
+# 14. Feed Rate Deviation
+new_features_df['FeedRateDeviation'] = df['M1_CURRENT_FEEDRATE'] - df['S1_ActualVelocity']
+
+# 15. Total Current Feedback
+new_features_df['Total_CurrentFeedback'] = df['X1_CurrentFeedback'] + df['Y1_CurrentFeedback'] + df['Z1_CurrentFeedback'] + df['S1_CurrentFeedback']
+
+# 16. Total Output Current
+new_features_df['Total_OutputCurrent'] = df['X1_OutputCurrent'] + df['Y1_OutputCurrent'] + df['Z1_OutputCurrent'] + df['S1_OutputCurrent']
+
+
+
+# --- Handle Missing Values (Imputation - using new_features_df) ---
+for col in new_features_df.columns:
+    if new_features_df[col].dtype in ['int64', 'float64']:
+        new_features_df[col] = new_features_df[col].fillna(new_features_df[col].mean())
+
+# --- Select Features for Normalization ---
+features_to_normalize = new_features_df.columns.tolist()  # All columns in the new DataFrame
+
+# --- Normalization using sklearn.preprocessing.Normalizer ---
+normalizer = Normalizer(norm='l2')  # or 'l1', 'max'
+normalized_features = normalizer.fit_transform(new_features_df[features_to_normalize])
+df_normalized = pd.DataFrame(normalized_features, columns=features_to_normalize)
+
+
+
+
+new_features_df.head()
+new_features_df.columns
+
+# --- Handle Missing Values (Imputation - using new_features_df) ---
+for col in new_features_df.columns:
+    if new_features_df[col].dtype in ['int64', 'float64']:
+        new_features_df[col] = new_features_df[col].fillna(new_features_df[col].mean())
+
+# --- Exploratory Data Analysis (EDA) for Outliers ---
+
+# 1. Histograms for all numerical features
+new_features_df.hist(figsize=(20, 15), bins=20)  # Adjust bins as needed
+plt.suptitle("Histograms of Engineered Features", fontsize=16)
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # Adjust layout to prevent title overlap
+plt.show()
+
+
+# 2. Box Plots for all numerical features
+plt.figure(figsize=(20, 15))
+new_features_df.boxplot()
+plt.title("Box Plots of Engineered Features", fontsize=16)
+plt.xticks(rotation=90)  # Rotate x-axis labels for readability
+plt.tight_layout()
+plt.show()
+
+
+# 3. Scatter Plots (Pairwise Relationships)
+#    Select a few key features for pairwise scatter plots.  Doing all combinations
+#    can be overwhelming.  Focus on relationships that *should* exist based on
+#    your understanding of the system.
+
+# Example: Position Error vs. Velocity Error
+plt.figure(figsize=(8, 6))
+plt.scatter(new_features_df['X1_PositionError'], new_features_df['X1_VelocityError'], alpha=0.5)
+plt.xlabel('X1 Position Error')
+plt.ylabel('X1 Velocity Error')
+plt.title('Scatter Plot: X1 Position Error vs. X1 Velocity Error')
+plt.grid(True)
+plt.show()
+
+# Example: TotalPositionError vs. TotalVelocityError
+plt.figure(figsize=(8, 6))
+plt.scatter(new_features_df['TotalPositionError'], new_features_df['TotalVelocityError'], alpha=0.5)
+plt.xlabel('Total Position Error')
+plt.ylabel('Total Velocity Error')
+plt.title('Scatter Plot: Total Position Error vs. Total Velocity Error')
+plt.grid(True)
+plt.show()
+
+# Example: X1_ApparentResistance vs. X1_OutputPower_Change
+plt.figure(figsize=(8, 6))
+plt.scatter(new_features_df['X1_ApparentResistance'], new_features_df['X1_OutputPower_Change'], alpha=0.5)
+plt.xlabel('X1 Apparent Resistance')
+plt.ylabel('X1 Output Power Change')
+plt.title('Scatter Plot: X1 Apparent Resistance vs. X1 Output Power Change')
+plt.grid(True)
+plt.show()
+
+# Example using Seaborn's pairplot (for a *subset* of features)
+# Be VERY careful with pairplot on large numbers of features - it can be slow.
+sns.pairplot(new_features_df[['X1_PositionError', 'X1_VelocityError', 'X1_AccelerationError', 'X1_Jerk']],
+             diag_kind='kde',  # Use Kernel Density Estimation for the diagonal plots
+             plot_kws={'alpha': 0.5}) #make the scatter plot points half transparent
+plt.suptitle("Pairplot of Selected Features", fontsize=16)
+plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+plt.show()
+from xgboost import XGBClassifier
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.model_selection import train_test_split, KFold, cross_val_score
+from sklearn.ensemble import StackingRegressor , RandomForestRegressor , RandomForestClassifier
+from sklearn.linear_model import RidgeCV
+import xgboost as xgb
+from sklearn.metrics import mean_squared_error, r2_score
+
+
+# Custom wrapper class that inherits from BaseEstimator and ClassifierMixin
+class SklearnCompatibleXGB(BaseEstimator, ClassifierMixin):
+    def __init__(self, n_estimators=100, learning_rate=0.1, max_depth=3):
+        # Store hyperparameters as attributes (scikit-learn expects this structure)
+        self.n_estimators = n_estimators
+        self.learning_rate = learning_rate
+        self.max_depth = max_depth
+        
+        # Initialize the actual XGBoost classifier
+        self.model = xgb.XGBRegressor(
+            n_estimators=self.n_estimators,
+            learning_rate=self.learning_rate,
+            max_depth=self.max_depth
+        )
+
+    def fit(self, X, y):
+        # Call the fit method of the underlying XGBoost model
+        self.model.fit(X, y)
+        return self  # Return self for method chaining (e.g., in pipelines)
+
+    def predict(self, X):
+        # Call the predict method of the underlying XGBoost model
+        return self.model.predict(X)
+
+    def predict_proba(self, X):
+        # For compatibility with scikit-learn classifiers that return probabilities
+        return self.model.predict_proba(X)
+
+### Regression Model
+from sklearn.ensemble import IsolationForest, RandomForestRegressor, StackingRegressor, StackingClassifier
+from sklearn.linear_model import RidgeCV
+from sklearn.svm import LinearSVR
+import xgboost as xgb
+from sklearn.model_selection import KFold
+
+
+'''
+class IsolationForestRegressor(BaseEstimator, RegressorMixin):
+    def __init__(self, n_estimators=100, max_samples="auto", contamination="auto", random_state=None):
+        self.n_estimators = n_estimators
+        self.max_samples = max_samples
+        self.contamination = contamination
+        self.random_state = random_state
+        self.model = IsolationForest(
+            n_estimators=self.n_estimators,
+            max_samples=self.max_samples,
+            contamination=self.contamination,
+            random_state=self.random_state
+        )
+    
+    def fit(self, X, y=None):
+        self.model.fit(X)
+        return self
+
+    def predict(self, X):
+        # Use decision_function as proxy for regression predictions.
+        # Note: decision_function values may require post-processing.
+        return self.model.decision_function(X)
+'''
+
+# Define base learners
+base_learners = [
+    ('rf', RandomForestRegressor(n_estimators=20, random_state=42, n_jobs=-1)),
+    ('xgb', xgb.XGBRegressor(objective='reg:squarederror',
+                             n_estimators=20,
+                             random_state=42,
+                             enable_categorical=False,
+                             tree_method='hist',
+                             n_jobs=-1)),
+    ('osvr', LinearSVR())
+]
+
+# RidgeCV is good as meta learner (built in cross-validation to choose the best alpha value.)
+model = StackingRegressor(
+    estimators=base_learners,
+    final_estimator=RidgeCV(),
+    cv=KFold(n_splits=5, shuffle=True, random_state=42),  # Use KFold (not stratified, as this is regression)
+    passthrough=False, #we have scaled the data so no need for passthrough
+    n_jobs= -1
+)
+final_df = pd.concat([df,df_normalized], axis=1)
+final_df.head()
+final_df['Failure_Risk']
+train, test = train_test_split(final_df, test_size=0.2, random_state=42)
+final_df['Failure_Risk'] 
+train['Failure_Risk'] 
+train['Failure_Risk']
+X = train.drop(columns=['Failure_Risk'])
+y = train['Failure_Risk']
+model.fit(X, y)
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+
+# Assuming model has been fit, and you have test data X_test, y_test
+predictions = model.predict(test.drop(columns=['Failure_Risk']))
+
+mse = mean_squared_error(test['Failure_Risk'], predictions)
+mae = mean_absolute_error(test['Failure_Risk'], predictions)
+r2 = r2_score(test['Failure_Risk'], predictions)
+
+print("Mean Squared Error:", mse)
+print("Mean Absolute Error:", mae)
+print("R2 Score:", r2*100)
+## Classification Model
+### Cross validation
+
+class IsolationForestClassifier(BaseEstimator, ClassifierMixin):
+    def __init__(self, contamination=0.1, random_state=None):
+        self.contamination = contamination
+        self.random_state = random_state
+        self.model = IsolationForest(contamination=self.contamination, random_state=self.random_state)
+        # Define two classes: 0 for inliers, 1 for outliers.
+        self.classes_ = np.array([0, 1])
+      
+    def fit(self, X, y=None):
+        # Note: Since IsolationForest is unsupervised,
+        # we ignore y during fitting.
+        self.model.fit(X)
+        return self
+
+    def predict(self, X):
+        # IsolationForest returns 1 for inliers, -1 for outliers
+        pred = self.model.predict(X)
+        # Map: 1 -> 0 (inlier), -1 -> 1 (anomaly/outlier)
+        return np.where(pred == 1, 0, 1)
+      
+    def predict_proba(self, X):
+        # Use decision_function as a proxy for probabilities.
+        decision = self.model.decision_function(X)
+        # Scale decision values to [0, 1] range
+        denom = decision.max() - decision.min() + 1e-5
+        proba_outlier = (decision - decision.min()) / denom  
+        # Return probabilities for class 0 and class 1.
+        proba_inlier = 1 - proba_outlier
+        return np.vstack([proba_inlier, proba_outlier]).T
+
+    def get_params(self, deep=True):
+        return {'contamination': self.contamination, 'random_state': self.random_state}
+      
+    def set_params(self, **params):
+        for key, value in params.items():
+            setattr(self, key, value)
+        self.model = IsolationForest(contamination=self.contamination, random_state=self.random_state)
+        return self
+from sklearn.svm import OneClassSVM , SVC
+
+param_grid_rf = {"n_estimators": [20, 50, 100],
+                 "max_depth": [None, 5, 10]}
+                 
+param_grid_xgb = {"n_estimators": [50, 100, 150],
+                  "max_depth": [3, 5, 7],
+                  "learning_rate": [0.01, 0.1, 0.2]}
+                  
+param_grid_svc = {"C": [0.1, 1, 10],
+                  "kernel": ["linear", "rbf"]}
+
+param_grid_iso = {"contamination": [0.05, 0.1, 0.2]}
+
+cv = KFold(n_splits=5, shuffle=True, random_state=42)
+
+
+grid_rf = GridSearchCV(RandomForestClassifier(random_state=42, n_jobs=-1),
+                       param_grid_rf, cv=cv, scoring="accuracy")
+grid_rf.fit(X, y)
+print("Best RF Params:", grid_rf.best_params_, "Score:", grid_rf.best_score_)
+
+# XGBoost
+grid_xgb = GridSearchCV(XGBClassifier(objective="binary:logistic", 
+                                      use_label_encoder=False, 
+                                      eval_metric="logloss", 
+                                      random_state=42),
+                        param_grid_xgb, cv=cv, scoring="accuracy")
+grid_xgb.fit(X, y)
+print("Best XGB Params:", grid_xgb.best_params_, "Score:", grid_xgb.best_score_)
+
+# SVC
+grid_svc = GridSearchCV(SVC(probability=True, random_state=42),
+                        param_grid_svc, cv=cv, scoring="accuracy")
+grid_svc.fit(X, y)
+print("Best SVC Params:", grid_svc.best_params_, "Score:", grid_svc.best_score_)
+
+# IsolationForestClassifier (using our custom wrapper)
+grid_iso = GridSearchCV(IsolationForestClassifier(random_state=42),
+                        param_grid_iso, cv=cv, scoring="accuracy")
+grid_iso.fit(X, y)
+print("Best IsolationForest Params:", grid_iso.best_params_, "Score:", grid_iso.best_score_)
+
+from sklearn.svm import OneClassSVM , SVC
+from sklearn.ensemble import VotingClassifier
+
+base_learners_classification = [
+    ('rf', RandomForestClassifier(n_estimators=100,max_depth=None, n_jobs=-1)),
+    ('xgb', xgb.XGBClassifier(objective="binary:logistic",
+                            n_estimators=100,
+                            learning_rate=0.01,
+                            max_depth=3,
+                            enable_categorical=True,
+                        )
+    ),
+    ('svc', SVC(probability=True,C=0.1,kernel='linear')),
+    ('iso', IsolationForestClassifier(contamination=0.1, random_state=42))             
+]
+
+classifier_model = StackingClassifier(
+    estimators=base_learners_classification,
+    final_estimator=LogisticRegression(),
+    cv=KFold(n_splits=5, shuffle=True, random_state=42),
+    n_jobs=-1
+)
+
+vclassifier_model = VotingClassifier(
+    estimators=[
+    ('rf', RandomForestClassifier(n_estimators=20, n_jobs=-1)),
+    ('xgb', xgb.XGBClassifier(objective="binary:logistic",
+                            n_estimators=100,
+                            learning_rate=0.01,
+                            max_depth=3,
+                            enable_categorical=True,
+                        )
+    ),
+    ('svc', SVC(probability=True,C=0.1,kernel='linear')),],
+    voting='soft',
+    n_jobs=-1
+)
+classifier_df = pd.read_csv(r"D:\machine_failure_dataset.csv")
+
+classifier_df.replace(to_replace={'Mill':0,'Lathe':1,'Drill':2},inplace=True)
+
+ctrain, ctest = train_test_split(classifier_df, test_size=0.2, random_state=42)
+cX = ctrain.drop(columns=['Failure_Risk'])
+cy = ctrain['Failure_Risk']
+classifier_model.fit(cX, cy)
+result = classifier_model.predict(ctest.drop(columns=['Failure_Risk']))
+acc = accuracy_score(ctest['Failure_Risk'], result)
+print("Accuracy: ", acc*100)
+vclassifier_model.fit(cX, cy)
+result = vclassifier_model.predict(ctest.drop(columns=['Failure_Risk']))
+acc = accuracy_score(ctest['Failure_Risk'], result)
+print("Accuracy: ", acc*100)
